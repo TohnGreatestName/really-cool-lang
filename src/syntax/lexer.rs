@@ -22,6 +22,16 @@ impl PeekState {
         }
     }
 }
+#[derive(Debug)]
+pub enum PeekResult {
+    Correct,
+    WrongChar(char),
+}
+impl PeekResult {
+    pub fn correct(&self) -> bool {
+        matches!(self, PeekResult::Correct)
+    }
+}
 
 pub struct LexerStream<'a> {
     chars: IndexedCharIter<'a>,
@@ -48,28 +58,31 @@ impl<'a> LexerStream<'a> {
             peek: self.peek.clone(),
             ty: LexerType::UntilEnd(c),
         };
-        while self.peek(None)?.1 != c {
-            self.advance(None)?;
-        }
+        while self.advance(None)? != c {}
         Ok(new_lexer)
     }
 
-    pub fn peek(&self, comparison: Option<char>) -> LexerResult<(usize, char)> {
+    pub fn peek(&self, comparison: Option<char>) -> LexerResult<(PeekResult, (usize, char))> {
         let PeekState::Present(idx, char) = self.peek else {
             return Err(self.peek.err());
         };
 
         if let Some(comparison) = comparison {
             if char != comparison {
-                return Err(LexerError::incorrect_char(Some((idx, char)), comparison));
+                return Ok((PeekResult::WrongChar(comparison), (idx, char)));
             }
         }
 
-        Ok((idx, char))
+        Ok((PeekResult::Correct, (idx, char)))
     }
 
     pub fn advance(&mut self, comparison: Option<char>) -> LexerResult<char> {
-        let (idx, c) = self.peek(comparison)?;
+        let (peek, (idx, c)) = self.peek(comparison)?;
+
+        if let PeekResult::WrongChar(should_be) = peek {
+            return Err(LexerError::incorrect_char(Some((idx, c)), should_be));
+        }
+
         self.peek = match self.chars.next() {
             Some((idx, char)) => PeekState::Present(idx, char),
             None => PeekState::Eof(idx + 1),
