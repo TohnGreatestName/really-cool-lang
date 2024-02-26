@@ -8,16 +8,33 @@ pub enum LexerType {
 }
 
 type IndexedCharIter<'a> = Enumerate<Chars<'a>>;
+#[derive(Debug, Clone, Copy)]
+enum PeekState {
+    Present(usize, char),
+    Eof(usize),
+}
+
+impl PeekState {
+    fn err(&self) -> LexerError {
+        match self {
+            Self::Present(_, _) => panic!("Not an error value"),
+            Self::Eof(v) => LexerError::eof(*v),
+        }
+    }
+}
 
 pub struct LexerStream<'a> {
     chars: IndexedCharIter<'a>,
-    peek: Option<(usize, char)>,
+    peek: PeekState,
     ty: LexerType,
 }
 
 impl<'a> LexerStream<'a> {
     pub fn new(mut chars: IndexedCharIter<'a>) -> Self {
-        let peek = chars.next();
+        let peek = match chars.next() {
+            Some((idx, char)) => PeekState::Present(idx, char),
+            None => PeekState::Eof(0),
+        };
         Self {
             chars,
             peek,
@@ -31,35 +48,35 @@ impl<'a> LexerStream<'a> {
             peek: self.peek.clone(),
             ty: LexerType::UntilEnd(c),
         };
-        while self.peek(None)? != c {
+        while self.peek(None)?.1 != c {
             self.advance(None)?;
         }
         Ok(new_lexer)
     }
 
-    pub fn peek(&self, comparison: Option<char>) -> LexerResult<char> {
-        if self.peek.is_none() {
-            return Err(LexerError::eof());
-        }
+    pub fn peek(&self, comparison: Option<char>) -> LexerResult<(usize, char)> {
+        let PeekState::Present(idx, char) = self.peek else {
+            return Err(self.peek.err());
+        };
+
         if let Some(comparison) = comparison {
-            if self.peek.map(|v| v.1) != Some(comparison) {
-                return Err(LexerError::incorrect_char(self.peek, comparison));
+            if char != comparison {
+                return Err(LexerError::incorrect_char(Some((idx, char)), comparison));
             }
         }
 
-        if let Some(current) = self.peek {
-            Ok(current.1)
-        } else {
-            Err(LexerError::eof())
-        }
+        Ok((idx, char))
     }
 
     pub fn advance(&mut self, comparison: Option<char>) -> LexerResult<char> {
-        let c = self.peek(comparison)?;
-        self.peek = self.chars.next();
+        let (idx, c) = self.peek(comparison)?;
+        self.peek = match self.chars.next() {
+            Some((idx, char)) => PeekState::Present(idx, char),
+            None => PeekState::Eof(idx + 1),
+        };
         if let LexerType::UntilEnd(comp) = &self.ty {
             if c == *comp {
-                return Err(LexerError::eof());
+                return Err(LexerError::eof(idx));
             }
         }
         Ok(c)
@@ -75,11 +92,10 @@ pub struct LexerError {
 }
 
 impl LexerError {
-    pub fn eof() -> Self {
+    pub fn eof(position: usize) -> Self {
         Self {
             err: LexerErrorType::EOF,
-            position: 0, // TODO - "Enumerate" iterator helper does not let us access the current position without
-                         // advancing the iterator. Will fix this later
+            position,
         }
     }
 

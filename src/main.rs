@@ -12,6 +12,7 @@ fn main() -> std::result::Result<(), LexerError> {
     second_stream.advance(Some('b'))?;
     v.advance(Some('e'))?;
     v.advance(Some('d'))?;
+    v.advance(Some('g'))?;
     println!("Hello, world!");
     Ok(())
 }
