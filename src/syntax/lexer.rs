@@ -27,11 +27,6 @@ pub enum PeekResult {
     Correct,
     WrongChar(char),
 }
-impl PeekResult {
-    pub fn correct(&self) -> bool {
-        matches!(self, PeekResult::Correct)
-    }
-}
 
 pub struct LexerStream<'a> {
     chars: IndexedCharIter<'a>,
@@ -137,4 +132,26 @@ pub enum LexerErrorType {
     IncorrectChar(Option<char>, char),
     #[error("encountered EOF")]
     EOF,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LexerStream;
+
+    #[test]
+    fn parenthesis() {
+        let mut v = LexerStream::new("(abcd)(bcda)".chars().enumerate());
+        let expected = ['a', 'b', 'c', 'd', 'b', 'c', 'd', 'a'];
+        let mut received = vec![];
+
+        while v.advance(Some('(')).is_ok() {
+            let mut second_stream = v.eat_until(')').unwrap();
+
+            while let Ok(v) = second_stream.advance(None) {
+                received.push(v);
+            }
+        }
+
+        assert_eq!(received, expected)
+    }
 }
