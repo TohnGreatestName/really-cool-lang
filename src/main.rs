@@ -7,8 +7,7 @@ mod syntax;
 fn main() -> std::result::Result<(), LexerError> {
     let mut v = LexerStream::new("(abcd)(bcda)".chars().enumerate());
 
-    while v.peek(Some('(')).is_ok() {
-        v.advance(Some('('))?;
+    while v.advance(Some('(')).is_ok() {
         let mut second_stream = v.eat_until(')')?;
 
         while let Ok(v) = second_stream.advance(None) {
