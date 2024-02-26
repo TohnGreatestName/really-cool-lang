@@ -12,15 +12,35 @@ type IndexedCharIter<'a> = Enumerate<Chars<'a>>;
 pub struct LexerStream<'a> {
     chars: IndexedCharIter<'a>,
     peek: Option<(usize, char)>,
+    ty: LexerType,
 }
 
 impl<'a> LexerStream<'a> {
     pub fn new(mut chars: IndexedCharIter<'a>) -> Self {
         let peek = chars.next();
-        Self { chars, peek }
+        Self {
+            chars,
+            peek,
+            ty: LexerType::UntilEof,
+        }
+    }
+
+    pub fn eat_until(&mut self, c: char) -> LexerResult<LexerStream<'a>> {
+        let new_lexer = LexerStream {
+            chars: self.chars.clone(),
+            peek: self.peek.clone(),
+            ty: LexerType::UntilEnd(c),
+        };
+        while self.peek(None)? != c {
+            self.advance(None)?;
+        }
+        Ok(new_lexer)
     }
 
     pub fn peek(&self, comparison: Option<char>) -> LexerResult<char> {
+        if self.peek.is_none() {
+            return Err(LexerError::eof());
+        }
         if let Some(comparison) = comparison {
             if self.peek.map(|v| v.1) != Some(comparison) {
                 return Err(LexerError::incorrect_char(self.peek, comparison));
@@ -37,6 +57,11 @@ impl<'a> LexerStream<'a> {
     pub fn advance(&mut self, comparison: Option<char>) -> LexerResult<char> {
         let c = self.peek(comparison)?;
         self.peek = self.chars.next();
+        if let LexerType::UntilEnd(comp) = &self.ty {
+            if c == *comp {
+                return Err(LexerError::eof());
+            }
+        }
         Ok(c)
     }
 }
