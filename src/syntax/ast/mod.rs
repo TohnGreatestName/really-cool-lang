@@ -3,7 +3,7 @@ use std::{fmt::Debug, ops::Deref};
 use thiserror::Error;
 
 use super::lexer::{CharIndex, IndexedCharIter, LexerError, LexerStream};
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Span {
     pub start: CharIndex,
     pub end: CharIndex,
@@ -29,6 +29,10 @@ impl<T> Node<T> {
             value: Box::new(value),
             span,
         }
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
     }
 }
 
