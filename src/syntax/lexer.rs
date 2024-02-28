@@ -2,9 +2,81 @@ use std::{fmt::Display, iter::Enumerate, str::Chars};
 
 use thiserror::Error;
 
+use self::matchers::AnyChar;
+
+pub trait CharMatcher {
+    fn dynamic() -> &'static dyn CharMatcher where Self: Sized;
+    fn is_match(&self, c: char) -> std::result::Result<(), String>;
+}
+
+
+pub mod matchers {
+    use super::CharMatcher;
+
+    #[derive(Clone, Copy)]
+    pub struct NumericChar;
+    impl CharMatcher for NumericChar {
+
+        fn is_match(&self, c: char) -> std::result::Result<(), String> {
+            if c.is_numeric() {
+                Ok(())
+            } else {
+                Err(format!("got non-numeric character {c}"))
+            }
+        }
+
+
+        fn dynamic() -> &'static dyn CharMatcher {
+            Self::VALUE
+        }
+    }
+    impl NumericChar {
+        pub const VALUE: &'static dyn CharMatcher = &Self;
+    }
+
+
+    #[derive(Clone, Copy)]
+    pub struct AnyChar;
+    impl CharMatcher for AnyChar {
+
+        fn is_match(&self, _: char) -> std::result::Result<(), String> {
+            Ok(())
+        }
+
+
+        fn dynamic() -> &'static dyn CharMatcher {
+            Self::VALUE
+        }
+    }
+    impl AnyChar {
+        pub const VALUE: &'static dyn CharMatcher = &Self;
+    }
+
+    #[derive(Clone, Copy)]
+    pub struct SpecificChar<const C: char>;
+    impl<const C: char> CharMatcher for SpecificChar<C> {
+        fn is_match(&self, c: char) -> std::result::Result<(), String> {
+            if c == C {
+                Ok(())
+            } else {
+                Err(format!("got {} but expected {}", c, C))
+            }
+        }
+
+        fn dynamic() -> &'static dyn CharMatcher {
+            Self::VALUE
+        }
+    }
+
+    impl<const C: char> SpecificChar<C> {
+        pub const VALUE: &'static dyn CharMatcher = &Self;
+    }
+}
+
+
 pub enum LexerType {
     UntilEof,
-    UntilEnd(char),
+    UntilEnd(&'static dyn CharMatcher),
 }
 
 type IndexedCharIter<'a> = Enumerate<Chars<'a>>;
@@ -21,11 +93,6 @@ impl PeekState {
             Self::Eof(v) => LexerError::eof(*v),
         }
     }
-}
-#[derive(Debug)]
-pub enum PeekResult {
-    Correct,
-    WrongChar(char),
 }
 
 pub struct LexerStream<'a> {
@@ -47,46 +114,44 @@ impl<'a> LexerStream<'a> {
         }
     }
 
-    pub fn eat_until(&mut self, c: char) -> LexerResult<LexerStream<'a>> {
+    pub fn eat_until<C: CharMatcher>(&mut self) -> LexerResult<LexerStream<'a>> {
         let new_lexer = LexerStream {
             chars: self.chars.clone(),
             peek: self.peek.clone(),
-            ty: LexerType::UntilEnd(c),
+            ty: LexerType::UntilEnd(C::dynamic()),
         };
-        while self.advance(None)? != c {}
+        while C::dynamic().is_match(self.advance::<AnyChar>()?).is_err() {}
         Ok(new_lexer)
     }
 
-    pub fn peek(&self, comparison: Option<char>) -> LexerResult<(PeekResult, (usize, char))> {
+    pub fn peek(&self) -> LexerResult<(usize, char)> {
         let PeekState::Present(idx, char) = self.peek else {
             return Err(self.peek.err());
         };
 
-        if let Some(comparison) = comparison {
-            if char != comparison {
-                return Ok((PeekResult::WrongChar(comparison), (idx, char)));
+
+        Ok((idx, char))
+    }
+
+    pub fn advance<C: CharMatcher>(&mut self) -> LexerResult<char> {
+        let (idx, c) = self.peek()?;
+
+        if let LexerType::UntilEnd(comp) = &self.ty {
+            if comp.is_match(c).is_ok() {
+                return Err(LexerError::eof(idx));
             }
         }
 
-        Ok((PeekResult::Correct, (idx, char)))
-    }
-
-    pub fn advance(&mut self, comparison: Option<char>) -> LexerResult<char> {
-        let (peek, (idx, c)) = self.peek(comparison)?;
-
-        if let PeekResult::WrongChar(should_be) = peek {
-            return Err(LexerError::incorrect_char(Some((idx, c)), should_be));
+        if let Err(s) = C::dynamic().is_match(c) {
+            return Err(LexerError::incorrect_char(Some((idx, c)), s))
         }
+
 
         self.peek = match self.chars.next() {
             Some((idx, char)) => PeekState::Present(idx, char),
             None => PeekState::Eof(idx + 1),
         };
-        if let LexerType::UntilEnd(comp) = &self.ty {
-            if c == *comp {
-                return Err(LexerError::eof(idx));
-            }
-        }
+
         Ok(c)
     }
 }
@@ -100,6 +165,10 @@ pub struct LexerError {
 }
 
 impl LexerError {
+    pub fn is_eof(&self) -> bool {
+        matches!(self.err, LexerErrorType::EOF)
+    }
+    
     pub fn eof(position: usize) -> Self {
         Self {
             err: LexerErrorType::EOF,
@@ -107,7 +176,7 @@ impl LexerError {
         }
     }
 
-    pub fn incorrect_char(got: Option<(usize, char)>, expected: char) -> Self {
+    pub fn incorrect_char(got: Option<(usize, char)>, expected: String) -> Self {
         let position = if let Some((idx, _)) = got {
             idx
         } else {
@@ -129,13 +198,15 @@ impl Display for LexerError {
 #[derive(Debug, Error)]
 pub enum LexerErrorType {
     #[error("got {0:?} but expected {1}")]
-    IncorrectChar(Option<char>, char),
+    IncorrectChar(Option<char>, String),
     #[error("encountered EOF")]
     EOF,
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::syntax::lexer::matchers::{AnyChar, SpecificChar};
+
     use super::LexerStream;
 
     #[test]
@@ -144,10 +215,10 @@ mod tests {
         let expected = ['a', 'b', 'c', 'd', 'b', 'c', 'd', 'a'];
         let mut received = vec![];
 
-        while v.advance(Some('(')).is_ok() {
-            let mut second_stream = v.eat_until(')').unwrap();
+        while v.advance::<SpecificChar<'('>>().is_ok() {
+            let mut second_stream = v.eat_until::<SpecificChar<')'>>().unwrap();
 
-            while let Ok(v) = second_stream.advance(None) {
+            while let Ok(v) = second_stream.advance::<AnyChar>() {
                 received.push(v);
             }
         }
