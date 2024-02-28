@@ -4,11 +4,14 @@ use thiserror::Error;
 
 use self::matchers::AnyChar;
 
+use super::ast::Span;
+
 pub trait CharMatcher {
-    fn dynamic() -> &'static dyn CharMatcher where Self: Sized;
+    fn dynamic() -> &'static dyn CharMatcher
+    where
+        Self: Sized;
     fn is_match(&self, c: char) -> std::result::Result<(), String>;
 }
-
 
 pub mod matchers {
     use super::CharMatcher;
@@ -16,7 +19,6 @@ pub mod matchers {
     #[derive(Clone, Copy)]
     pub struct NumericChar;
     impl CharMatcher for NumericChar {
-
         fn is_match(&self, c: char) -> std::result::Result<(), String> {
             if c.is_numeric() {
                 Ok(())
@@ -24,7 +26,6 @@ pub mod matchers {
                 Err(format!("got non-numeric character {c}"))
             }
         }
-
 
         fn dynamic() -> &'static dyn CharMatcher {
             Self::VALUE
@@ -34,15 +35,12 @@ pub mod matchers {
         pub const VALUE: &'static dyn CharMatcher = &Self;
     }
 
-
     #[derive(Clone, Copy)]
     pub struct AnyChar;
     impl CharMatcher for AnyChar {
-
         fn is_match(&self, _: char) -> std::result::Result<(), String> {
             Ok(())
         }
-
 
         fn dynamic() -> &'static dyn CharMatcher {
             Self::VALUE
@@ -72,18 +70,69 @@ pub mod matchers {
         pub const VALUE: &'static dyn CharMatcher = &Self;
     }
 }
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CharIndex {
+    pub line: usize,
+    pub column: usize,
+}
 
+impl CharIndex {
+    pub fn advance_num(&self, n: usize) -> Self {
+        let mut clone = *self;
+        clone.column += n;
+        clone
+    }
 
+    pub fn advance(&self, c: char) -> Self {
+        let mut clone = *self;
+        if c == '\n' {
+            clone.line += 1;
+            clone.column = 0;
+        } else {
+            clone.column += 1;
+        }
+        clone
+    }
+}
+#[derive(Clone, Copy)]
 pub enum LexerType {
     UntilEof,
     UntilEnd(&'static dyn CharMatcher),
 }
+#[derive(Clone)]
+pub struct IndexedCharIter<'a> {
+    chars: Chars<'a>,
+    index: CharIndex,
+}
 
-type IndexedCharIter<'a> = Enumerate<Chars<'a>>;
+impl<'a> Iterator for IndexedCharIter<'a> {
+    type Item = (CharIndex, char);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next = self.chars.next()?;
+        let og_index = self.index;
+        self.index = self.index.advance(next);
+        Some((og_index, next))
+    }
+}
+
+impl<'a> IndexedCharIter<'a> {
+    pub fn index(&self) -> CharIndex {
+        self.index
+    }
+
+    pub fn new(chars: Chars<'a>) -> Self {
+        Self {
+            chars,
+            index: Default::default(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 enum PeekState {
-    Present(usize, char),
-    Eof(usize),
+    Present(CharIndex, char),
+    Eof(CharIndex),
 }
 
 impl PeekState {
@@ -94,23 +143,34 @@ impl PeekState {
         }
     }
 }
-
+#[derive(Clone)]
 pub struct LexerStream<'a> {
     chars: IndexedCharIter<'a>,
     peek: PeekState,
     ty: LexerType,
+    start: CharIndex,
+    end: CharIndex,
 }
 
 impl<'a> LexerStream<'a> {
     pub fn new(mut chars: IndexedCharIter<'a>) -> Self {
         let peek = match chars.next() {
             Some((idx, char)) => PeekState::Present(idx, char),
-            None => PeekState::Eof(0),
+            None => PeekState::Eof(chars.index()),
         };
         Self {
+            start: chars.index(),
+            end: chars.index(),
             chars,
             peek,
             ty: LexerType::UntilEof,
+        }
+    }
+
+    pub fn span(&self) -> Span {
+        Span {
+            start: self.start,
+            end: self.end,
         }
     }
 
@@ -119,16 +179,17 @@ impl<'a> LexerStream<'a> {
             chars: self.chars.clone(),
             peek: self.peek.clone(),
             ty: LexerType::UntilEnd(C::dynamic()),
+            start: self.start,
+            end: self.end,
         };
         while C::dynamic().is_match(self.advance::<AnyChar>()?).is_err() {}
         Ok(new_lexer)
     }
 
-    pub fn peek(&self) -> LexerResult<(usize, char)> {
+    pub fn peek(&self) -> LexerResult<(CharIndex, char)> {
         let PeekState::Present(idx, char) = self.peek else {
             return Err(self.peek.err());
         };
-
 
         Ok((idx, char))
     }
@@ -143,14 +204,14 @@ impl<'a> LexerStream<'a> {
         }
 
         if let Err(s) = C::dynamic().is_match(c) {
-            return Err(LexerError::incorrect_char(Some((idx, c)), s))
+            return Err(LexerError::incorrect_char(Some(c), idx, s));
         }
-
 
         self.peek = match self.chars.next() {
             Some((idx, char)) => PeekState::Present(idx, char),
-            None => PeekState::Eof(idx + 1),
+            None => PeekState::Eof(idx.advance_num(1)),
         };
+        self.end = self.chars.index();
 
         Ok(c)
     }
@@ -161,29 +222,24 @@ pub type LexerResult<T> = std::result::Result<T, LexerError>;
 #[derive(Debug, Error)]
 pub struct LexerError {
     err: LexerErrorType,
-    position: usize,
+    position: CharIndex,
 }
 
 impl LexerError {
     pub fn is_eof(&self) -> bool {
         matches!(self.err, LexerErrorType::EOF)
     }
-    
-    pub fn eof(position: usize) -> Self {
+
+    pub fn eof(position: CharIndex) -> Self {
         Self {
             err: LexerErrorType::EOF,
             position,
         }
     }
 
-    pub fn incorrect_char(got: Option<(usize, char)>, expected: String) -> Self {
-        let position = if let Some((idx, _)) = got {
-            idx
-        } else {
-            0 // TODO - position tracking in the stream if we encounter EOF
-        };
+    pub fn incorrect_char(got: Option<char>, position: CharIndex, expected: String) -> Self {
         Self {
-            err: LexerErrorType::IncorrectChar(got.map(|v| v.1), expected),
+            err: LexerErrorType::IncorrectChar(got, expected),
             position,
         }
     }
@@ -191,7 +247,7 @@ impl LexerError {
 
 impl Display for LexerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "@[{}]: {}", self.position, self.err)
+        write!(f, "@[{:?}]: {}", self.position, self.err)
     }
 }
 
@@ -205,13 +261,16 @@ pub enum LexerErrorType {
 
 #[cfg(test)]
 mod tests {
-    use crate::syntax::lexer::matchers::{AnyChar, SpecificChar};
+    use crate::syntax::lexer::{
+        matchers::{AnyChar, SpecificChar},
+        IndexedCharIter,
+    };
 
     use super::LexerStream;
 
     #[test]
     fn parenthesis() {
-        let mut v = LexerStream::new("(abcd)(bcda)".chars().enumerate());
+        let mut v = LexerStream::new(IndexedCharIter::new("(abcd)(bcda)".chars()));
         let expected = ['a', 'b', 'c', 'd', 'b', 'c', 'd', 'a'];
         let mut received = vec![];
 
