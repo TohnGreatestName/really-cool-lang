@@ -37,27 +37,44 @@ impl Parseable for Number {
 enum Expr {
     Val(Node<Number>),
     Add(Node<Number>, Node<Expr>),
+    Sub(Node<Number>, Node<Expr>),
 }
+impl Expr {
+    pub fn evaluate(&self) -> u64 {
+        match self {
+            Expr::Val(v) => v.0,
+            Expr::Add(a, b) => a.0 + b.evaluate(),
+            Expr::Sub(a, b) => a.0 - b.evaluate(),
+        }
+    }
+}
+
 impl Parseable for Expr {
     fn parse<'a>(
         state: &mut Parser<'a>,
     ) -> std::result::Result<Node<Self>, syntax::ast::ParseError> {
         let num = state.parse::<Number>()?;
 
-        if matches!(state.lexer().peek(), Ok((_, '+'))) {
-            state.lexer().advance::<SpecificChar<'+'>>()?;
-            let num_two = state.parse::<Expr>()?;
-            return Ok(Node::new(Self::Add(num, num_two), state.lexer().span()));
-        } else {
-            return Ok(Node::new(Self::Val(num), state.lexer().span()));
+        match state.lexer().peek() {
+            Ok((_, '+')) => {
+                state.lexer().advance::<SpecificChar<'+'>>()?;
+                let num_two = state.parse::<Expr>()?;
+                Ok(Node::new(Self::Add(num, num_two), state.lexer().span()))
+            }
+            Ok((_, '-')) => {
+                state.lexer().advance::<SpecificChar<'-'>>()?;
+                let num_two = state.parse::<Expr>()?;
+                Ok(Node::new(Self::Sub(num, num_two), state.lexer().span()))
+            }
+            _ => Ok(Node::new(Self::Val(num), state.lexer().span())),
         }
     }
 }
 
 fn main() -> std::result::Result<(), LexerError> {
-    let mut parser = Parser::new("1234+245");
+    let mut parser = Parser::new("9+10-1");
     let v = parser.parse::<Expr>().unwrap();
-    println!("Val: {:#?}", v);
+    println!("Val: {:#?}", v.evaluate());
 
     let mut v = LexerStream::new(IndexedCharIter::new("(1234)(2345)(22)".chars()));
 
