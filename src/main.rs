@@ -15,12 +15,19 @@ use crate::syntax::{
 
 mod syntax;
 #[derive(Debug)]
-struct Number(u64);
+struct Number(i64);
 impl Parseable for Number {
     fn parse<'a>(
         state: &mut syntax::ast::Parser<'a>,
     ) -> std::result::Result<syntax::ast::Node<Self>, syntax::ast::ParseError> {
         let mut chars = String::new();
+
+        let mut negate = false;
+        if matches!(state.lexer().peek(), Ok((_, '-'))) {
+            state.lexer().eat::<'-'>()?;
+            negate = true;
+        }
+
         loop {
             match state.lexer().advance::<NumericChar>() {
                 Ok(c) => chars.push(c),
@@ -29,10 +36,11 @@ impl Parseable for Number {
                 }
             }
         }
-        Ok(Node::new(
-            Number(chars.parse::<u64>().unwrap()),
-            state.lexer().span(),
-        ))
+        let mut val = chars.parse::<i64>().unwrap();
+        if negate {
+            val = -val;
+        }
+        Ok(Node::new(Number(val), state.lexer().span()))
     }
 }
 #[derive(Debug)]
@@ -43,7 +51,7 @@ enum Factor {
     Div(Node<Factor>, Node<Factor>),
 }
 impl Factor {
-    pub fn evaluate(&self) -> u64 {
+    pub fn evaluate(&self) -> i64 {
         match self {
             Factor::Parenthesis(v) => v.evaluate(),
             Factor::Val(v) => v.0,
@@ -93,7 +101,7 @@ enum Term {
     Sub(Node<Term>, Node<Term>),
 }
 impl Term {
-    pub fn evaluate(&self) -> u64 {
+    pub fn evaluate(&self) -> i64 {
         match self {
             Term::Val(v) => v.evaluate(),
             Term::Add(a, b) => a.evaluate() + b.evaluate(),

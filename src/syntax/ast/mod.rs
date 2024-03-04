@@ -70,12 +70,12 @@ impl<'a> Parser<'a> {
     ) -> std::result::Result<Node<T>, ParseError> {
         let current_lexer = std::mem::replace(&mut self.stream, lexer);
         let v = self.parse();
-        std::mem::replace(&mut self.stream, current_lexer);
+        let _ = std::mem::replace(&mut self.stream, current_lexer);
         v
     }
 
     pub fn parse<T: Parseable>(&mut self) -> std::result::Result<Node<T>, ParseError> {
-        let mut stream = self.stream.clone();
+        let stream = self.stream.clone();
         match T::parse(self) {
             Ok(v) => Ok(v),
             Err(e) => {
