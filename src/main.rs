@@ -36,45 +36,93 @@ impl Parseable for Number {
     }
 }
 #[derive(Debug)]
-enum Expr {
-    Val(Node<Number>),
-    Add(Node<Expr>, Node<Number>),
-    Sub(Node<Expr>, Node<Number>),
+enum Factor {
+    Val(Number),
+    Parenthesis(Node<Term>),
+    Mul(Node<Factor>, Node<Factor>),
+    Div(Node<Factor>, Node<Factor>),
 }
-impl Expr {
+impl Factor {
     pub fn evaluate(&self) -> u64 {
         match self {
-            Expr::Val(v) => v.0,
-            Expr::Add(a, b) => a.evaluate() + b.0,
-            Expr::Sub(a, b) => a.evaluate() - b.0,
+            Factor::Parenthesis(v) => v.evaluate(),
+            Factor::Val(v) => v.0,
+            Factor::Mul(a, b) => a.evaluate() * b.evaluate(),
+            Factor::Div(a, b) => a.evaluate() / b.evaluate(),
         }
     }
 }
 
-impl Parseable for Expr {
+impl Parseable for Factor {
     fn parse<'a>(
         state: &mut Parser<'a>,
     ) -> std::result::Result<Node<Self>, syntax::ast::ParseError> {
-        let num = state.parse::<Number>()?;
-        let num_span = num.span();
-        let num = Node::new(Expr::Val(num), num_span);
+        let num = if let Ok((_, '(')) = state.lexer().peek() {
+            state.lexer().eat::<'('>()?;
+            let in_parens = state.lexer().eat_until::<SpecificChar<')'>>()?;
+            Node::new(
+                Self::Parenthesis(state.parse_with_lexer(in_parens)?),
+                state.lexer().span(),
+            )
+        } else {
+            let num = state.parse::<Number>()?;
+            num.wrap(|v| Factor::Val(v))
+        };
 
-        let mut val: Node<Expr> = num;
-        loop {
-            val = match state.lexer().peek() {
-                Ok((_, '+')) => {
-                    state.lexer().advance::<SpecificChar<'+'>>()?;
-                    let num_two = state.parse::<Number>()?;
-                    Node::new(Self::Add(val, num_two), state.lexer().span())
-                }
-                Ok((_, '-')) => {
-                    state.lexer().advance::<SpecificChar<'-'>>()?;
-                    let num_two = state.parse::<Number>()?;
-                    Node::new(Self::Sub(val, num_two), state.lexer().span())
-                }
-                _ => break,
-            };
+        let mut val: Node<Factor> = num;
+        match state.lexer().peek() {
+            Ok((_, '*')) => {
+                state.lexer().eat::<'*'>()?;
+                let num_two = state.parse()?;
+                val = Node::new(Self::Mul(val, num_two), state.lexer().span())
+            }
+            Ok((_, '/')) => {
+                state.lexer().eat::<'/'>()?;
+                let num_two = state.parse()?;
+                val = Node::new(Self::Div(val, num_two), state.lexer().span())
+            }
+            _ => (),
+        };
+        return Ok(val);
+    }
+}
+#[derive(Debug)]
+enum Term {
+    Val(Factor),
+    Add(Node<Term>, Node<Term>),
+    Sub(Node<Term>, Node<Term>),
+}
+impl Term {
+    pub fn evaluate(&self) -> u64 {
+        match self {
+            Term::Val(v) => v.evaluate(),
+            Term::Add(a, b) => a.evaluate() + b.evaluate(),
+            Term::Sub(a, b) => a.evaluate() - b.evaluate(),
         }
+    }
+}
+
+impl Parseable for Term {
+    fn parse<'a>(
+        state: &mut Parser<'a>,
+    ) -> std::result::Result<Node<Self>, syntax::ast::ParseError> {
+        let num = state.parse::<Factor>()?;
+        let num = num.wrap(|v| Term::Val(v));
+
+        let mut val: Node<Term> = num;
+        match state.lexer().peek() {
+            Ok((_, '+')) => {
+                state.lexer().eat::<'+'>()?;
+                let num_two = state.parse()?;
+                val = Node::new(Self::Add(val, num_two), state.lexer().span())
+            }
+            Ok((_, '-')) => {
+                state.lexer().eat::<'-'>()?;
+                let num_two = state.parse()?;
+                val = Node::new(Self::Sub(val, num_two), state.lexer().span())
+            }
+            _ => (),
+        };
         return Ok(val);
     }
 }
@@ -85,7 +133,7 @@ fn main() -> std::result::Result<(), LexerError> {
     stdin().read_line(&mut input).unwrap();
 
     let mut parser = Parser::new(input.trim());
-    let v = parser.parse::<Expr>().unwrap();
+    let v = parser.parse::<Term>().unwrap();
     println!("Val: {:#?}", v.evaluate());
 
     // let mut v = LexerStream::new(IndexedCharIter::new("(1234)(2345)(22)".chars()));

@@ -2,7 +2,7 @@ use std::{fmt::Display, iter::Enumerate, str::Chars};
 
 use thiserror::Error;
 
-use self::matchers::AnyChar;
+use self::matchers::{AnyChar, SpecificChar};
 
 use super::ast::Span;
 
@@ -94,6 +94,12 @@ impl CharIndex {
         clone
     }
 }
+#[derive(Clone, Copy, Debug)]
+pub enum WhitespaceMode {
+    Skip,
+    Allow,
+}
+
 #[derive(Clone, Copy)]
 pub enum LexerType {
     UntilEof,
@@ -103,13 +109,22 @@ pub enum LexerType {
 pub struct IndexedCharIter<'a> {
     chars: Chars<'a>,
     index: CharIndex,
+    whitespace: WhitespaceMode,
 }
 
 impl<'a> Iterator for IndexedCharIter<'a> {
     type Item = (CharIndex, char);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let next = self.chars.next()?;
+        let mut next = self.chars.next()?;
+        match self.whitespace {
+            WhitespaceMode::Skip => {
+                while next.is_whitespace() {
+                    next = self.chars.next()?;
+                }
+            }
+            _ => (),
+        }
         let og_index = self.index;
         self.index = self.index.advance(next);
         Some((og_index, next))
@@ -125,6 +140,7 @@ impl<'a> IndexedCharIter<'a> {
         Self {
             chars,
             index: Default::default(),
+            whitespace: WhitespaceMode::Skip,
         }
     }
 }
@@ -192,6 +208,10 @@ impl<'a> LexerStream<'a> {
         };
 
         Ok((idx, char))
+    }
+
+    pub fn eat<const C: char>(&mut self) -> LexerResult<char> {
+        self.advance::<SpecificChar<C>>()
     }
 
     pub fn advance<C: CharMatcher>(&mut self) -> LexerResult<char> {

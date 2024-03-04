@@ -34,6 +34,12 @@ impl<T> Node<T> {
     pub fn span(&self) -> Span {
         self.span
     }
+
+    pub fn wrap<U>(self, f: fn(T) -> U) -> Node<U> {
+        let span = self.span;
+        let value = (f)(*self.value);
+        Node::new(value, span)
+    }
 }
 
 impl<T> Deref for Node<T> {
@@ -56,6 +62,16 @@ impl<'a> Parser<'a> {
         Self {
             stream: LexerStream::new(IndexedCharIter::new(s.chars())),
         }
+    }
+
+    pub fn parse_with_lexer<T: Parseable>(
+        &mut self,
+        lexer: LexerStream<'a>,
+    ) -> std::result::Result<Node<T>, ParseError> {
+        let current_lexer = std::mem::replace(&mut self.stream, lexer);
+        let v = self.parse();
+        std::mem::replace(&mut self.stream, current_lexer);
+        v
     }
 
     pub fn parse<T: Parseable>(&mut self) -> std::result::Result<Node<T>, ParseError> {
