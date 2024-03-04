@@ -76,6 +76,12 @@ pub struct CharIndex {
     pub column: usize,
 }
 
+impl Display for CharIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.line, self.column)
+    }
+}
+
 impl CharIndex {
     pub fn advance_num(&self, n: usize) -> Self {
         let mut clone = *self;
@@ -121,6 +127,7 @@ impl<'a> Iterator for IndexedCharIter<'a> {
             WhitespaceMode::Skip => {
                 while next.is_whitespace() {
                     next = self.chars.next()?;
+                    self.index = self.index.advance(next);
                 }
             }
             _ => (),
@@ -262,6 +269,10 @@ impl LexerError {
             err: LexerErrorType::IncorrectChar(got, expected),
             position,
         }
+    }
+
+    pub fn position(&self) -> CharIndex {
+        self.position
     }
 }
 

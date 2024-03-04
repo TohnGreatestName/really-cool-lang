@@ -36,6 +36,10 @@ impl Parseable for Number {
                 }
             }
         }
+        if chars.is_empty() {
+            return Err(state.err(syntax::ast::ParseErrorType::EmptyNumberLiteral));
+        }
+
         let mut val = chars.parse::<i64>().unwrap();
         if negate {
             val = -val;

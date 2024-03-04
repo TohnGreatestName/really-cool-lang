@@ -1,4 +1,7 @@
-use std::{fmt::Debug, ops::Deref};
+use std::{
+    fmt::{Debug, Display},
+    ops::Deref,
+};
 
 use thiserror::Error;
 
@@ -7,6 +10,18 @@ use super::lexer::{CharIndex, IndexedCharIter, LexerError, LexerStream};
 pub struct Span {
     pub start: CharIndex,
     pub end: CharIndex,
+}
+
+impl Span {
+    pub fn new(start: CharIndex, end: CharIndex) -> Self {
+        Self { start, end }
+    }
+}
+
+impl Display for Span {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Span({} to {})", self.start, self.end)
+    }
 }
 
 pub struct Node<T> {
@@ -88,10 +103,40 @@ impl<'a> Parser<'a> {
     pub fn lexer(&mut self) -> &mut LexerStream<'a> {
         &mut self.stream
     }
+
+    pub fn err(&self, e: ParseErrorType) -> ParseError {
+        ParseError {
+            span: self.stream.span(),
+            ty: e,
+        }
+    }
 }
 
 #[derive(Debug, Error)]
-pub enum ParseError {
+pub enum ParseErrorType {
     #[error("lexer: {0}")]
     LexerError(#[from] LexerError),
+    #[error("given empty number literal")]
+    EmptyNumberLiteral,
+}
+
+#[derive(Debug, Error)]
+pub struct ParseError {
+    pub span: Span,
+    pub ty: ParseErrorType,
+}
+
+impl Display for ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Err({} @ {})", self.ty, self.span)
+    }
+}
+
+impl From<LexerError> for ParseError {
+    fn from(value: LexerError) -> Self {
+        Self {
+            span: Span::new(value.position(), value.position()),
+            ty: value.into(),
+        }
+    }
 }
