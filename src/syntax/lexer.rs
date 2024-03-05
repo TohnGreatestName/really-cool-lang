@@ -13,6 +13,7 @@ pub trait CharMatcher {
     fn is_match(&self, c: char) -> std::result::Result<(), String>;
 }
 
+/// Various matchers.
 pub mod matchers {
     use super::CharMatcher;
 
@@ -70,6 +71,8 @@ pub mod matchers {
         pub const VALUE: &'static dyn CharMatcher = &Self;
     }
 }
+
+/// Represents a character position within a file.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct CharIndex {
     pub line: usize,
@@ -106,9 +109,13 @@ pub enum WhitespaceMode {
     Allow,
 }
 
+/// Where to read input up to in a lexer.
 #[derive(Clone, Copy)]
 pub enum LexerType {
+    /// Read until end of input.
     UntilEof,
+    /// Read until the following character
+    /// matches the given `CharMatcher`.
     UntilEnd(&'static dyn CharMatcher),
 }
 #[derive(Clone)]
@@ -286,7 +293,7 @@ impl LexerError {
 
 impl Display for LexerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "@[{:?}]: {}", self.position, self.err)
+        write!(f, "@[{}]: {}", self.position, self.err)
     }
 }
 

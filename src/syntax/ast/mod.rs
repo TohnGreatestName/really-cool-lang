@@ -6,6 +6,7 @@ use std::{
 use thiserror::Error;
 
 use super::lexer::{CharIndex, IndexedCharIter, LexerError, LexerStream};
+/// Represents a region of a file.
 #[derive(Debug, Clone, Copy)]
 pub struct Span {
     pub start: CharIndex,
@@ -24,6 +25,8 @@ impl Display for Span {
     }
 }
 
+/// Represents a node of the syntax tree. All nodes are
+/// heap-allocated, might change this in the future.
 pub struct Node<T> {
     value: Box<T>,
     span: Span,
@@ -69,6 +72,8 @@ pub trait Parseable: Sized {
     fn parse<'a>(state: &mut Parser<'a>) -> std::result::Result<Node<Self>, ParseError>;
 }
 
+/// Represents the state of the parser. Primarily a wrapper for a
+/// changing `LexerStream` to allow nested parsing.
 pub struct Parser<'a> {
     stream: LexerStream<'a>,
 }
