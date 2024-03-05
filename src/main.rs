@@ -1,7 +1,7 @@
-use std::io::stdin;
+use std::io::{stdin, stdout, BufRead, Write};
 
 use syntax::{
-    ast::{Node, Parseable},
+    ast::{Node, ParseErrorType, Parseable},
     lexer::{
         matchers::{AnyChar, NumericChar, SpecificChar},
         LexerError,
@@ -15,7 +15,7 @@ use crate::syntax::{
 
 mod syntax;
 #[derive(Debug)]
-struct Number(i64);
+struct Number(f64);
 impl Parseable for Number {
     fn parse<'a>(
         state: &mut syntax::ast::Parser<'a>,
@@ -28,7 +28,18 @@ impl Parseable for Number {
             negate = true;
         }
 
+        let mut seen_dot = false;
         loop {
+            if matches!(state.lexer().peek(), Ok((_, '.'))) {
+                if !seen_dot {
+                    state.lexer().eat::<'.'>()?;
+                    chars.push('.');
+                    seen_dot = true;
+                } else {
+                    return Err(state.err(ParseErrorType::ExtraDotInNumberLiteral));
+                }
+            }
+
             match state.lexer().advance::<NumericChar>() {
                 Ok(c) => chars.push(c),
                 Err(e) => {
@@ -40,7 +51,7 @@ impl Parseable for Number {
             return Err(state.err(syntax::ast::ParseErrorType::EmptyNumberLiteral));
         }
 
-        let mut val = chars.parse::<i64>().unwrap();
+        let mut val = chars.parse::<f64>().unwrap();
         if negate {
             val = -val;
         }
@@ -55,7 +66,7 @@ enum Factor {
     Div(Node<Factor>, Node<Factor>),
 }
 impl Factor {
-    pub fn evaluate(&self) -> i64 {
+    pub fn evaluate(&self) -> f64 {
         match self {
             Factor::Parenthesis(v) => v.evaluate(),
             Factor::Val(v) => v.0,
@@ -105,7 +116,7 @@ enum Term {
     Sub(Node<Term>, Node<Term>),
 }
 impl Term {
-    pub fn evaluate(&self) -> i64 {
+    pub fn evaluate(&self) -> f64 {
         match self {
             Term::Val(v) => v.evaluate(),
             Term::Add(a, b) => a.evaluate() + b.evaluate(),
@@ -142,11 +153,31 @@ impl Parseable for Term {
 fn main() -> std::result::Result<(), LexerError> {
     let mut input = String::new();
 
-    stdin().read_line(&mut input).unwrap();
+    let mut stdin = stdin().lock();
+    let mut stdout = stdout().lock();
+    loop {
+        stdout.write(b"> ").unwrap();
+        stdout.flush().unwrap();
+        stdin.read_line(&mut input).unwrap();
 
-    let mut parser = Parser::new(input.trim());
-    let v = parser.parse::<Term>().unwrap();
-    println!("Val: {:#?}", v.evaluate());
+        if input.is_empty() {
+            println!();
+            break;
+        }
+
+        let mut parser = Parser::new(input.trim());
+        match parser.parse::<Term>() {
+            Ok(v) => {
+                if !parser.lexer().is_finished() {
+                    eprintln!("Trailing data @ {}", parser.lexer().position());
+                } else {
+                    println!("{}", v.evaluate());
+                }
+            }
+            Err(e) => eprintln!("Err: {}", e),
+        }
+        input.clear();
+    }
 
     // let mut v = LexerStream::new(IndexedCharIter::new("(1234)(2345)(22)".chars()));
 

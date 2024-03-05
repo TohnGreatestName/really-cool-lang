@@ -176,6 +176,14 @@ pub struct LexerStream<'a> {
 }
 
 impl<'a> LexerStream<'a> {
+    pub fn position(&self) -> CharIndex {
+        self.end
+    }
+
+    pub fn is_finished(&self) -> bool {
+        matches!(self.peek, PeekState::Eof(_))
+    }
+
     pub fn new(mut chars: IndexedCharIter<'a>) -> Self {
         let peek = match chars.next() {
             Some((idx, char)) => PeekState::Present(idx, char),

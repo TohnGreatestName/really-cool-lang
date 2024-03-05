@@ -118,6 +118,8 @@ pub enum ParseErrorType {
     LexerError(#[from] LexerError),
     #[error("given empty number literal")]
     EmptyNumberLiteral,
+    #[error("extra dot in number literal")]
+    ExtraDotInNumberLiteral,
 }
 
 #[derive(Debug, Error)]
@@ -128,7 +130,7 @@ pub struct ParseError {
 
 impl Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Err({} @ {})", self.ty, self.span)
+        write!(f, "{} @ {}", self.ty, self.span)
     }
 }
 
