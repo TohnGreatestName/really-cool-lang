@@ -132,21 +132,36 @@ impl Parseable for Term {
         let num = state.parse::<Factor>()?;
         let num = num.wrap(|v| Term::Val(v));
 
-        let mut val: Node<Term> = num;
         match state.lexer().peek() {
             Ok((_, '+')) => {
                 state.lexer().eat::<'+'>()?;
                 let num_two = state.parse()?;
-                val = Node::new(Self::Add(val, num_two), state.lexer().span())
+                Ok(state.node(Self::Add(num, num_two)))
             }
             Ok((_, '-')) => {
                 state.lexer().eat::<'-'>()?;
                 let num_two = state.parse()?;
-                val = Node::new(Self::Sub(val, num_two), state.lexer().span())
+                Ok(state.node(Self::Sub(num, num_two)))
             }
-            _ => (),
-        };
-        return Ok(val);
+            _ => Ok(num),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{syntax::ast::Parser, Term};
+
+    #[test]
+    fn precedence_test() {
+        let mut parser = Parser::new("1+2*5");
+        assert_eq!(parser.parse::<Term>().unwrap().evaluate(), 11.0);
+    }
+
+    #[test]
+    fn long_expr() {
+        let mut parser = Parser::new("2/3*9");
+        assert_eq!(parser.parse::<Term>().unwrap().evaluate(), 6.0);
     }
 }
 
