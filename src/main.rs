@@ -92,21 +92,19 @@ impl Parseable for Factor {
             num.wrap(|v| Factor::Val(v))
         };
 
-        let mut val: Node<Factor> = num;
         match state.lexer().peek() {
             Ok((_, '*')) => {
                 state.lexer().eat::<'*'>()?;
                 let num_two = state.parse()?;
-                val = Node::new(Self::Mul(val, num_two), state.lexer().span())
+                Ok(state.node(Self::Mul(num, num_two)))
             }
             Ok((_, '/')) => {
                 state.lexer().eat::<'/'>()?;
                 let num_two = state.parse()?;
-                val = Node::new(Self::Div(val, num_two), state.lexer().span())
+                Ok(state.node(Self::Div(num, num_two)))
             }
-            _ => (),
-        };
-        return Ok(val);
+            _ => Ok(num),
+        }
     }
 }
 #[derive(Debug)]

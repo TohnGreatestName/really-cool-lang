@@ -84,6 +84,10 @@ impl<'a> Parser<'a> {
         }
     }
 
+    pub fn node<T>(&self, v: T) -> Node<T> {
+        Node::new(v, self.stream.span())
+    }
+
     pub fn parse_with_lexer<T: Parseable>(
         &mut self,
         lexer: LexerStream<'a>,
